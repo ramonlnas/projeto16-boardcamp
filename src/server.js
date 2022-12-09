@@ -64,8 +64,11 @@ app.post("/categories", async (req, res) => {
 
 app.get("/games", async (req, res) => {
   try {
-    const getGames = await connection.query("SELECT * FROM games;");
-    res.send(getGames.rows);
+    const getGames =
+      await connection.query(`SELECT games.*, categories.name AS "categoryName" FROM
+      games JOIN categories ON games."categoryId" = categories.id;
+    `);
+    res.send(getGames.rows[0]);
   } catch (err) {
     console.log(err);
     res.sendStatus(500);
