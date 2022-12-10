@@ -15,6 +15,13 @@ const gameSchema = joi.object({
   categoryId: joi.number().min(1).required(),
 });
 
+const userSchema = joi.object({
+  name: joi.string().min(1).required(),
+  phone: joi.string().min(10).max(11).required(),
+  cpf: joi.string().min(11).max(11),
+  birthday: joi.string().isoDate().required(),
+});
+
 dotenv.config();
 const app = express();
 app.use(express.json());
@@ -32,7 +39,7 @@ app.get("/categories", async (req, res) => {
 app.post("/categories", async (req, res) => {
   const name = req.body;
 
-  const validation = gameSchema.validate(name, { abortEarly: false });
+  const validation = categorySchema.validate(name, { abortEarly: false });
 
   if (validation.error) {
     const errors = validation.error.details.map((detail) => detail.message);
@@ -63,12 +70,21 @@ app.post("/categories", async (req, res) => {
 });
 
 app.get("/games", async (req, res) => {
+  const { name } = req.query;
+
   try {
+    const filterGames = await connection.query(
+      `SELECT * FROM games WHERE name ILIKE '${name}%'`
+    );
+    if (name) {
+      return res.send(filterGames.rows);
+    }
+
     const getGames =
       await connection.query(`SELECT games.*, categories.name AS "categoryName" FROM
       games JOIN categories ON games."categoryId" = categories.id;
     `);
-    res.send(getGames.rows[0]);
+    res.send(getGames.rows);
   } catch (err) {
     console.log(err);
     res.sendStatus(500);
@@ -78,16 +94,16 @@ app.get("/games", async (req, res) => {
 app.post("/games", async (req, res) => {
   const value = req.body;
 
-  // const validation = categorySchema.validate(value, { abortEarly: false });
+  const validation = gameSchema.validate(value, { abortEarly: false });
 
-  // if (validation.error) {
-  //   const errors = validation.error.details.map((detail) => detail.message);
-  //   return res.status(422).send(errors);
-  // }
+  if (validation.error) {
+    const errors = validation.error.details.map((detail) => detail.message);
+    return res.status(422).send(errors);
+  }
 
   try {
     const existCategoryId = await connection.query(
-      `SELECT * FROM games WHERE "categoryId"=$1`,
+      `SELECT * FROM categories WHERE id=$1;`,
       [value.categoryId]
     );
 
@@ -114,11 +130,112 @@ app.post("/games", async (req, res) => {
         value.pricePerDay,
       ]
     );
+    res.sendStatus(201);
   } catch (err) {
     console.log(err);
     res.sendStatus(500);
   }
 });
+
+app.get("/customers", async (req, res) => {
+  const { cpf } = req.query;
+  try {
+    const filterCPF = await connection.query(
+      `SELECT * FROM customers WHERE cpf ILIKE '${cpf}%'`
+    );
+    const getCostumers = await connection.query(`SELECT * FROM customers;`);
+
+    if (cpf) {
+      return res.send(filterCPF.rows);
+    }
+
+    res.send(getCostumers.rows);
+  } catch (err) {
+    console.log(err);
+    res.sendStatus(500);
+  }
+});
+
+app.get("/customers/:id", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const customerId = connection.query(
+      `SELECT * FROM customers WHERE id=$1}`,
+      [id]
+    );
+    res.send(customerId);
+  } catch (err) {
+    console.log(err);
+    res.sendStatus(500);
+  }
+});
+
+app.post("/customers", async (req, res) => {
+  const user = req.body;
+
+  const validation = userSchema.validate(user, { abortEarly: false });
+
+  if (validation.error) {
+    const errors = validation.error.details.map((detail) => detail.message);
+    return res.status(400).send(errors);
+  }
+
+  try {
+    const existCPF = await connection.query(
+      `SELECT (cpf) FROM customers WHERE cpf=$1`,
+      [user.cpf]
+    );
+
+    console.log(existCPF);
+    if (existCPF.rows.length !== 0) {
+      return res.sendStatus(409);
+    }
+
+    await connection.query(
+      `INSERT INTO customers (name, phone, cpf, birthday) VALUES ($1, $2, $3, $4)`,
+      [user.name, user.phone, user.cpf, user.birthday]
+    );
+    res.sendStatus(201);
+  } catch (err) {
+    console.log(err);
+    res.sendStatus(500);
+  }
+});
+
+app.put("/customers/:id", async (req, res) => {
+  const { id } = req.params;
+  const user = req.body;
+
+  const validation = userSchema.validate(user, { abortEarly: false });
+
+  if (validation.error) {
+    const errors = validation.error.details.map((detail) => detail.message);
+    return res.status(400).send(errors);
+  }
+
+  try {
+    const existCPF = await connection.query(
+      `SELECT (cpf) FROM customers WHERE cpf=$1`,
+      [user.cpf]
+    );
+
+    console.log(existCPF);
+    if (existCPF.rows.length !== 0) {
+      return res.sendStatus(409);
+    }
+
+    await connection.query(
+      `UPDATE customers SET name=$1, phone=$2, cpf=$3, birthday=$4 WHERE id=${id}`,
+      [user.name, user.phone, user.cpf, user.birthday]
+    );
+    res.sendStatus(201);
+  } catch (err) {
+    console.log(err);
+    res.sendStatus(500);
+  }
+});
+
 
 const port = process.env.PORT || 4000;
 app.listen(port, () => console.log(`Server running in port ${port}`));
