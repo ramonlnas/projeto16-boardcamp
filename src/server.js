@@ -1,3 +1,4 @@
+import dayjs from "dayjs";
 import dotenv from "dotenv";
 import express from "express";
 import joi from "joi";
@@ -20,6 +21,12 @@ const userSchema = joi.object({
   phone: joi.string().min(10).max(11).required(),
   cpf: joi.string().min(11).max(11),
   birthday: joi.string().isoDate().required(),
+});
+
+const rentalsSchema = joi.object({
+  customerId: joi.number().min(1).required(),
+  gameId: joi.number().min(1).required(),
+  daysRented: joi.number().min(1).required(),
 });
 
 dotenv.config();
@@ -236,6 +243,65 @@ app.put("/customers/:id", async (req, res) => {
   }
 });
 
+app.post("/rentals", async (req, res) => {
+  const values = req.body;
+  const time = new Date();
+
+  // const validation = rentalsSchema.validate(values, { abortEarly: false });
+
+  // if (validation.error) {
+  //   const errors = validation.error.details.map((detail) => detail.message);
+  //   return res.status(400).send(errors);
+  // }
+
+  const pricePerDay = await connection.query(
+    `SELECT "pricePerDay" from games WHERE id=$1`,
+    [values.gameId]
+  );
+  console.log(pricePerDay.rows[0])
+  const originalPrice = pricePerDay.rows[0].pricePerDay * values.daysRented;
+  console.log(originalPrice)
+
+  const userExist = await connection.query(
+    `SELECT (id) FROM customers WHERE id=$1`,
+    [values.customerId]
+  );
+
+  const gameExist = await connection.query(
+    `SELECT (id) FROM games where id=$1`,
+    [values.gameId]
+  );
+  const stock = await connection.query(
+    `SELECT "stockTotal" FROM games WHERE id=$1`,
+    [values.gameId]
+  );
+
+  // console.log(userExist, gameExist, stock)
+  if (userExist.rows.length === 0) {
+    return res.sendStatus(400);
+  }
+
+  if (gameExist.rows.length === 0) {
+    return res.sendStatus(400);
+  }
+
+  if (values.daysRented < 1) {
+    return res.sendStatus(400);
+  }
+
+  if (stock.rows[0] < 1) {
+    return res.sendStatus(400);
+  }
+
+  await connection.query(
+    `INSERT INTO 
+    rentals 
+    ("customerId", "gameId", "rentDate", "daysRented", "returnDate", "originalPrice", "delayFee") 
+      VALUES($1, $2, $3, $4, $5, $6, $7)
+    `, [values.customerId, values.gameId, time, values.daysRented, null, originalPrice, null]
+  );
+  res.sendStatus(201)
+});
 
 const port = process.env.PORT || 4000;
 app.listen(port, () => console.log(`Server running in port ${port}`));
