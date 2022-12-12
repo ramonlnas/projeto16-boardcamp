@@ -243,24 +243,90 @@ app.put("/customers/:id", async (req, res) => {
   }
 });
 
+app.get("/rentals", async (req, res) => {
+  const { customerId, gameId } = req.query;
+
+  try {
+    if (customerId) {
+      const filterCustomerId = await connection.query(
+        `SELECT * FROM rentals WHERE "customerId"=$1`,
+        [customerId]
+      );
+      return res.send(filterCustomerId.rows);
+    }
+
+    if (gameId) {
+      const filterGameId = await connection.query(
+        `SELECT * FROM rentals WHERE "gameId"=$1`,
+        [gameId]
+      );
+      return res.send(filterGameId.rows);
+    }
+
+    const getRentals =
+      await connection.query(`SELECT rentals.*, customers.id AS "idCustomer", 
+      customers.name AS "nameCustomer", 
+      games.id AS 
+      "idGame", games.name AS "gameName", 
+      games."categoryId" AS 
+      "categoryIdGame", categories.name AS "categoryName" FROM rentals
+        JOIN 
+      customers ON rentals."customerId" = customers.id 
+        JOIN 
+      games ON rentals."gameId" = games.id 
+        JOIN 
+      categories ON games."categoryId" = categories.id;
+    `);
+    // console.log(getRentals.rows);
+
+    const sendFormat = getRentals.rows.map((el) => {
+      return {
+        id: el.id,
+        customerId: el.customerId,
+        gameId: el.gameId,
+        rentDate: el.rentDate,
+        daysRented: el.daysRented,
+        returnDate: el.returnDate,
+        originalPrice: el.originalPrice,
+        delayFee: el.deleyFee,
+        customer: {
+          id: el.idCustomer,
+          name: el.nameCustomer,
+        },
+        game: {
+          id: el.idGame,
+          name: el.gameName,
+          categoryId: el.categoryIdGame,
+          categoryName: el.categoryName,
+        },
+      };
+    });
+
+    res.send(sendFormat);
+  } catch (err) {
+    console.log(err);
+    res.sendStatus(500);
+  }
+});
+
 app.post("/rentals", async (req, res) => {
   const values = req.body;
   const time = new Date();
 
-  // const validation = rentalsSchema.validate(values, { abortEarly: false });
+  const validation = rentalsSchema.validate(values, { abortEarly: false });
 
-  // if (validation.error) {
-  //   const errors = validation.error.details.map((detail) => detail.message);
-  //   return res.status(400).send(errors);
-  // }
+  if (validation.error) {
+    const errors = validation.error.details.map((detail) => detail.message);
+    return res.status(400).send(errors);
+  }
 
   const pricePerDay = await connection.query(
     `SELECT "pricePerDay" from games WHERE id=$1`,
     [values.gameId]
   );
-  console.log(pricePerDay.rows[0])
+  console.log(pricePerDay.rows[0]);
   const originalPrice = pricePerDay.rows[0].pricePerDay * values.daysRented;
-  console.log(originalPrice)
+  console.log(originalPrice);
 
   const userExist = await connection.query(
     `SELECT (id) FROM customers WHERE id=$1`,
@@ -298,9 +364,46 @@ app.post("/rentals", async (req, res) => {
     rentals 
     ("customerId", "gameId", "rentDate", "daysRented", "returnDate", "originalPrice", "delayFee") 
       VALUES($1, $2, $3, $4, $5, $6, $7)
-    `, [values.customerId, values.gameId, time, values.daysRented, null, originalPrice, null]
+    `,
+    [
+      values.customerId,
+      values.gameId,
+      time,
+      values.daysRented,
+      null,
+      originalPrice,
+      null,
+    ]
   );
-  res.sendStatus(201)
+  res.sendStatus(201);
+});
+
+app.post("/rentals/:id/return", async (req, res) => {
+  const id = parseInt(req.params.id);
+  const time = new Date();
+
+
+  try {
+    const getRental = await connection.query(`SELECT * FROM rentals WHERE id=1`, [id])
+
+    if(getRental.rows.length === 0) {
+      return res.sendStatus(404)
+    }
+    
+    const delayFee = 
+
+    res.send(getRental)
+  } catch (err) {
+    console.log(err)
+    res.sendStatus(500)
+  }
+});
+
+app.delete("/rentals/:id", async (req, res) => {
+  const { id } = req.params;
+
+
+
 });
 
 const port = process.env.PORT || 4000;
