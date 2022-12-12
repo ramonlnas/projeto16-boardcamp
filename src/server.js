@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import express from "express";
 import joi from "joi";
 import connection from "./database.js";
+import { parseISO, isAfter } from "date-fns";
 
 const categorySchema = joi.object({
   name: joi.string().min(1).required(),
@@ -167,11 +168,15 @@ app.get("/customers/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
-    const customerId = connection.query(
-      `SELECT * FROM customers WHERE id=$1}`,
+    const customerId = await connection.query(
+      `SELECT * FROM customers WHERE id=$1`,
       [id]
     );
-    res.send(customerId);
+
+    if(customerId.rows.length === 0) {
+      return res.sendStatus(404)
+    }
+    res.send(customerId.rows[0]);
   } catch (err) {
     console.log(err);
     res.sendStatus(500);
@@ -227,7 +232,7 @@ app.put("/customers/:id", async (req, res) => {
       [user.cpf]
     );
 
-    console.log(existCPF);
+    // console.log(existCPF);
     if (existCPF.rows.length !== 0) {
       return res.sendStatus(409);
     }
@@ -324,9 +329,9 @@ app.post("/rentals", async (req, res) => {
     `SELECT "pricePerDay" from games WHERE id=$1`,
     [values.gameId]
   );
-  console.log(pricePerDay.rows[0]);
+  // console.log(pricePerDay.rows[0]);
   const originalPrice = pricePerDay.rows[0].pricePerDay * values.daysRented;
-  console.log(originalPrice);
+  // console.log(originalPrice);
 
   const userExist = await connection.query(
     `SELECT (id) FROM customers WHERE id=$1`,
@@ -382,28 +387,58 @@ app.post("/rentals/:id/return", async (req, res) => {
   const id = parseInt(req.params.id);
   const time = new Date();
 
-
   try {
-    const getRental = await connection.query(`SELECT * FROM rentals WHERE id=1`, [id])
-
-    if(getRental.rows.length === 0) {
-      return res.sendStatus(404)
+    const getRental = await connection.query(
+      `SELECT rentals.*, games."pricePerDay" 
+    FROM 
+    rentals 
+    JOIN games 
+    ON rentals."gameId" = games.id 
+    WHERE rentals.id=$1`,
+      [id]
+    );
+    if (getRental.rows.length === 0) {
+      return res.sendStatus(404);
     }
-    
-    const delayFee = 
+    if(getRental.rows[0].returnDate !== null) {
+      return res.sendStatus(400)
+    }
 
-    res.send(getRental)
+    const deliveryTime = getRental.rows[0].rentDate;
+    const timeDiff = Math.abs(time.getTime() - deliveryTime.getTime());
+    const diffDays = Math.ceil(timeDiff / (1000 * 3600 * 24));
+    console.log(time, deliveryTime, timeDiff, diffDays)
+
+    if (diffDays > getRental.rows[0].daysRented) {
+      const newdelayFee = (diffDays * getRental.rows[0].pricePerDay) + getRental.rows[0].originalPrice
+      await connection.query(`UPDATE rentals SET "returnDate"=$1, "delayFee"=$2, WHERE id=$3`, [time, newdelayFee, id])
+    }
+
+    await connection.query(`UPDATE rentals SET "returnDate"=$1 WHERE id=$2`, [time, id])
+    res.sendStatus(200);
   } catch (err) {
-    console.log(err)
-    res.sendStatus(500)
+    console.log(err);
+    res.sendStatus(500);
   }
 });
 
 app.delete("/rentals/:id", async (req, res) => {
   const { id } = req.params;
 
+  const idExist = await connection.query(`SELECT * FROM rentals WHERE id=$1`, [id])
 
+  console.log(idExist)
 
+  if(idExist.rows.length === 0) {
+    return res.sendStatus(404)
+  }
+
+  if(idExist.rows[0].returnDate !== null) {
+    return res.sendStatus(400)
+  }
+
+  await connection.query(`DELETE FROM rentals WHERE id=$1`, [id])
+  res.sendStatus(200)
 });
 
 const port = process.env.PORT || 4000;
