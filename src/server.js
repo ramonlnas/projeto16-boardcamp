@@ -295,7 +295,7 @@ app.get("/rentals", async (req, res) => {
         daysRented: el.daysRented,
         returnDate: el.returnDate,
         originalPrice: el.originalPrice,
-        delayFee: el.deleyFee,
+        delayFee: el.delayFee,
         customer: {
           id: el.idCustomer,
           name: el.nameCustomer,
@@ -326,63 +326,67 @@ app.post("/rentals", async (req, res) => {
     const errors = validation.error.details.map((detail) => detail.message);
     return res.status(400).send(errors);
   }
+  try {
+    const pricePerDay = await connection.query(
+      `SELECT "pricePerDay" from games WHERE id=$1`,
+      [values.gameId]
+    );
+    // console.log(pricePerDay.rows[0]);
+    const originalPrice = pricePerDay.rows[0].pricePerDay * values.daysRented;
+    // console.log(originalPrice);
 
-  const pricePerDay = await connection.query(
-    `SELECT "pricePerDay" from games WHERE id=$1`,
-    [values.gameId]
-  );
-  // console.log(pricePerDay.rows[0]);
-  const originalPrice = pricePerDay.rows[0].pricePerDay * values.daysRented;
-  // console.log(originalPrice);
+    const userExist = await connection.query(
+      `SELECT (id) FROM customers WHERE id=$1`,
+      [values.customerId]
+    );
 
-  const userExist = await connection.query(
-    `SELECT (id) FROM customers WHERE id=$1`,
-    [values.customerId]
-  );
+    const gameExist = await connection.query(
+      `SELECT (id) FROM games where id=$1`,
+      [values.gameId]
+    );
+    const stock = await connection.query(
+      `SELECT "stockTotal" FROM games WHERE id=$1`,
+      [values.gameId]
+    );
 
-  const gameExist = await connection.query(
-    `SELECT (id) FROM games where id=$1`,
-    [values.gameId]
-  );
-  const stock = await connection.query(
-    `SELECT "stockTotal" FROM games WHERE id=$1`,
-    [values.gameId]
-  );
+    // console.log(userExist, gameExist, stock)
+    if (userExist.rows.length === 0) {
+      return res.sendStatus(400);
+    }
 
-  // console.log(userExist, gameExist, stock)
-  if (userExist.rows.length === 0) {
-    return res.sendStatus(400);
+    if (gameExist.rows.length === 0) {
+      return res.sendStatus(400);
+    }
+
+    if (values.daysRented < 1) {
+      return res.sendStatus(400);
+    }
+
+    if (stock.rows[0] < 1) {
+      return res.sendStatus(400);
+    }
+
+    await connection.query(
+      `INSERT INTO 
+      rentals 
+      ("customerId", "gameId", "rentDate", "daysRented", "returnDate", "originalPrice", "delayFee") 
+        VALUES($1, $2, $3, $4, $5, $6, $7)
+      `,
+      [
+        values.customerId,
+        values.gameId,
+        time,
+        values.daysRented,
+        null,
+        originalPrice,
+        null,
+      ]
+    );
+    res.sendStatus(201);
+  } catch (err) {
+    console.log(err);
+    res.sendStatus(500);
   }
-
-  if (gameExist.rows.length === 0) {
-    return res.sendStatus(400);
-  }
-
-  if (values.daysRented < 1) {
-    return res.sendStatus(400);
-  }
-
-  if (stock.rows[0] < 1) {
-    return res.sendStatus(400);
-  }
-
-  await connection.query(
-    `INSERT INTO 
-    rentals 
-    ("customerId", "gameId", "rentDate", "daysRented", "returnDate", "originalPrice", "delayFee") 
-      VALUES($1, $2, $3, $4, $5, $6, $7)
-    `,
-    [
-      values.customerId,
-      values.gameId,
-      time,
-      values.daysRented,
-      null,
-      originalPrice,
-      null,
-    ]
-  );
-  res.sendStatus(201);
 });
 
 app.post("/rentals/:id/return", async (req, res) => {
@@ -412,7 +416,13 @@ app.post("/rentals/:id/return", async (req, res) => {
     const newdelayFee =
       diffDays * getRental.rows[0].pricePerDay +
       getRental.rows[0].originalPrice;
-    console.log(deliveryTime, timeDiff, diffDays, getRental.rows[0].daysRented, newdelayFee);
+    console.log(
+      deliveryTime,
+      timeDiff,
+      diffDays,
+      getRental.rows[0].daysRented,
+      newdelayFee
+    );
 
     if (diffDays > getRental.rows[0].daysRented) {
       const newdelayFee =
