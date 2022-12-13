@@ -2,6 +2,7 @@ import dayjs from "dayjs";
 import dotenv from "dotenv";
 import express from "express";
 import joi from "joi";
+import cors from "cors";
 import connection from "./database.js";
 import { parseISO, isAfter } from "date-fns";
 
@@ -32,6 +33,7 @@ const rentalsSchema = joi.object({
 
 dotenv.config();
 const app = express();
+app.use(cors());
 app.use(express.json());
 
 app.get("/categories", async (req, res) => {
@@ -173,8 +175,8 @@ app.get("/customers/:id", async (req, res) => {
       [id]
     );
 
-    if(customerId.rows.length === 0) {
-      return res.sendStatus(404)
+    if (customerId.rows.length === 0) {
+      return res.sendStatus(404);
     }
     res.send(customerId.rows[0]);
   } catch (err) {
@@ -400,21 +402,32 @@ app.post("/rentals/:id/return", async (req, res) => {
     if (getRental.rows.length === 0) {
       return res.sendStatus(404);
     }
-    if(getRental.rows[0].returnDate !== null) {
-      return res.sendStatus(400)
+    if (getRental.rows[0].returnDate !== null) {
+      return res.sendStatus(400);
     }
 
     const deliveryTime = getRental.rows[0].rentDate;
     const timeDiff = Math.abs(time.getTime() - deliveryTime.getTime());
     const diffDays = Math.ceil(timeDiff / (1000 * 3600 * 24));
-    console.log(time, deliveryTime, timeDiff, diffDays)
+    const newdelayFee =
+      diffDays * getRental.rows[0].pricePerDay +
+      getRental.rows[0].originalPrice;
+    console.log(deliveryTime, timeDiff, diffDays, getRental.rows[0].daysRented, newdelayFee);
 
     if (diffDays > getRental.rows[0].daysRented) {
-      const newdelayFee = (diffDays * getRental.rows[0].pricePerDay) + getRental.rows[0].originalPrice
-      await connection.query(`UPDATE rentals SET "returnDate"=$1, "delayFee"=$2, WHERE id=$3`, [time, newdelayFee, id])
+      const newdelayFee =
+        diffDays * getRental.rows[0].pricePerDay +
+        getRental.rows[0].originalPrice;
+      await connection.query(
+        `UPDATE rentals SET "returnDate"=$1, "delayFee"=$2, WHERE id=$3`,
+        [time, newdelayFee, id]
+      );
     }
 
-    await connection.query(`UPDATE rentals SET "returnDate"=$1 WHERE id=$2`, [time, id])
+    await connection.query(
+      `UPDATE rentals SET "returnDate"=$1, "delayFee"=$2 WHERE id=$3`,
+      [time, null, id]
+    );
     res.sendStatus(200);
   } catch (err) {
     console.log(err);
@@ -425,20 +438,22 @@ app.post("/rentals/:id/return", async (req, res) => {
 app.delete("/rentals/:id", async (req, res) => {
   const { id } = req.params;
 
-  const idExist = await connection.query(`SELECT * FROM rentals WHERE id=$1`, [id])
+  const idExist = await connection.query(`SELECT * FROM rentals WHERE id=$1`, [
+    id,
+  ]);
 
-  console.log(idExist)
+  console.log(idExist);
 
-  if(idExist.rows.length === 0) {
-    return res.sendStatus(404)
+  if (idExist.rows.length === 0) {
+    return res.sendStatus(404);
   }
 
-  if(idExist.rows[0].returnDate !== null) {
-    return res.sendStatus(400)
+  if (idExist.rows[0].returnDate !== null) {
+    return res.sendStatus(400);
   }
 
-  await connection.query(`DELETE FROM rentals WHERE id=$1`, [id])
-  res.sendStatus(200)
+  await connection.query(`DELETE FROM rentals WHERE id=$1`, [id]);
+  res.sendStatus(200);
 });
 
 const port = process.env.PORT || 4000;
